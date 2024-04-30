@@ -5,7 +5,7 @@ import socket
 import pickle
 
 
-NUM_QUBITS = 32
+NUM_QUBITS = 1024
 
 def generate_bits(n: int) -> np.ndarray:
     """
@@ -121,7 +121,7 @@ class QLS_Server:
             secret = generate_bits(NUM_QUBITS)
             secret_basis = generate_bits(NUM_QUBITS) #TODO: implement four tone key checking
             secret_message = encode_message(secret, secret_basis)
-            secret_sent_message = simulate_quantum_channel(secret_message,0.02)
+            secret_sent_message = simulate_quantum_channel(secret_message,0)
             with conn:
                 ssm_dump = pickle.dumps(secret_sent_message)
                 bytes_sent = 0
@@ -131,11 +131,34 @@ class QLS_Server:
                     bytes_sent += len(chunk)
                 conn.send(b"done")
                 print(f"Connected by {addr}")
+                # while True:
+                #     data = conn.recv(1024)
+                #     if not data:
+                #         break
+                #     conn.sendall(data)
+                received_data = b""
                 while True:
-                    data = conn.recv(1024)
-                    if not data:
+                    str = conn.recv(1024)
+                    if str[-4:] == b"done":
+                        if(len(str) > 4):
+                            received_data += str[:-4]
                         break
-                    conn.sendall(data)
+                    received_data += str
+                bob_basis = pickle.loads(received_data)
+                print(bob_basis)
+
+
+                alex_basis = pickle.dumps(secret_basis)
+                bytes_sent = 0
+                while bytes_sent < len(alex_basis):
+                    chunk = alex_basis[bytes_sent:bytes_sent+4096]
+                    conn.sendall(chunk)
+                    bytes_sent += len(chunk)
+                conn.send(b"done")
+
+                alex_key = remove_garbage(secret_basis,bob_basis,secret )
+                print(alex_key)
+
 
     def send(self, message: str) -> None:
         """Send a string over the socket."""
