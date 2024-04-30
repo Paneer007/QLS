@@ -1,9 +1,16 @@
 from qls.qs_client import * 
+import random
 import pickle
+
+def select_random_indices(arr):
+    num_indices = len(arr) // 4
+    random_indices = random.sample(range(len(arr)), num_indices)
+    result = {index: arr[index] for index in random_indices}
+    return result
 
 client = QLS_Client()
 
-client.connect("127.0.0.1",4000)
+client.connect("127.0.0.1",5000)
 received_data = b""
 while True:
     str = client.recv()
@@ -35,7 +42,16 @@ while True:
     received_data += str
 
 alex_basis = pickle.loads(received_data)
-
 bob_key = remove_garbage(alex_basis,bob_basis,bob_results);
 
-print(bob_key);
+bob_map_key = select_random_indices(bob_key)
+
+ssm_dump = pickle.dumps(bob_map_key)
+bytes_sent = 0
+while bytes_sent < len(ssm_dump):
+    chunk = ssm_dump[bytes_sent:bytes_sent+4096]
+    client.socket.sendall(chunk)
+    bytes_sent += len(chunk)
+print(bob_key)
+client.socket.send(b"done")
+

@@ -5,7 +5,7 @@ import socket
 import pickle
 
 
-NUM_QUBITS = 1024
+NUM_QUBITS = 128
 
 def generate_bits(n: int) -> np.ndarray:
     """
@@ -80,7 +80,7 @@ def measure_message(message: list, basis: np.ndarray) -> list:
         measurements.append(int(result.get_memory()[0]))
     return measurements
 
-def check_keys(key1: list, key2: list) -> None:
+def check_keys(map, key2: list) -> None:
     """
     Check if two keys are the same.
 
@@ -91,9 +91,14 @@ def check_keys(key1: list, key2: list) -> None:
     Returns:
     None
     """
-    print("\nAlice's key: ", key1)
-    print("Bob's key:   ", key2)
-    if key1 == key2:
+    global flag
+    flag = True
+
+    for key, value in map.items():
+        if key2[key] != value:
+            flag = False;
+            break
+    if flag:
         print("Keys are the same and secure.")
     else:
         print("Error: keys are different.")
@@ -121,7 +126,7 @@ class QLS_Server:
             secret = generate_bits(NUM_QUBITS)
             secret_basis = generate_bits(NUM_QUBITS) #TODO: implement four tone key checking
             secret_message = encode_message(secret, secret_basis)
-            secret_sent_message = simulate_quantum_channel(secret_message,0)
+            secret_sent_message = simulate_quantum_channel(secret_message,0.4)
             with conn:
                 ssm_dump = pickle.dumps(secret_sent_message)
                 bytes_sent = 0
@@ -145,8 +150,6 @@ class QLS_Server:
                         break
                     received_data += str
                 bob_basis = pickle.loads(received_data)
-                print(bob_basis)
-
 
                 alex_basis = pickle.dumps(secret_basis)
                 bytes_sent = 0
@@ -158,6 +161,19 @@ class QLS_Server:
 
                 alex_key = remove_garbage(secret_basis,bob_basis,secret )
                 print(alex_key)
+                received_data = b""
+                while True:
+                    str = conn.recv(1024)
+                    if str[-4:] == b"done":
+                        if(len(str) > 4):
+                            received_data += str[:-4]
+                        break
+                    received_data += str
+                bob_map_key = pickle.loads(received_data)
+                
+                check_keys(bob_map_key,alex_key)
+
+
 
 
     def send(self, message: str) -> None:

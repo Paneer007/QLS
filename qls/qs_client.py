@@ -3,7 +3,7 @@ from numpy.random import randint
 import numpy as np
 import socket
 
-NUM_QUBITS = 1024
+NUM_QUBITS = 128
 
 def generate_bits(n: int) -> np.ndarray:
     return randint(2, size=n)
