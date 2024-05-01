@@ -2,8 +2,19 @@ from qiskit import QuantumCircuit, execute, Aer
 from numpy.random import randint
 import numpy as np
 import socket
+import pickle
+import random
 
 NUM_QUBITS = 128
+
+
+def select_random_indices(arr):
+    num_indices = len(arr) // 4
+    random_indices = random.sample(range(len(arr)), num_indices)
+    result = {index: arr[index] for index in random_indices}
+    return result
+
+
 
 def generate_bits(n: int) -> np.ndarray:
     return randint(2, size=n)
@@ -29,35 +40,6 @@ def measure_message(message: list, basis: np.ndarray) -> list:
         measurements.append(int(result.get_memory()[0]))
     return measurements
 
-def encode_message(bits: np.ndarray, basis: np.ndarray) -> list:
-    message = []
-    for i in range(NUM_QUBITS):
-        qc = QuantumCircuit(1, 1) # 1 qubit and 1 classical bit - message and measurement respectively
-        if basis[i] == 0:  # Prepare qubit in Z-basis (i.e. |0> or |1>)
-            if bits[i] == 1:
-                qc.x(0) # Bit flip (Pauli-X gate)
-        else:  # Prepare qubit in X-basis (i.e. |+> or |->)
-            if bits[i] == 0:
-                qc.h(0) # Hadamard gate
-            else:
-                qc.x(0)
-                qc.h(0)
-        qc.barrier()
-        message.append(qc)
-    return message
-
-def simulate_quantum_channel(message: list, error_rate: float) -> list:
-    noisy_message = []
-    for qc in message:
-        if np.random.random() < error_rate:  # Bit flip with given error rate
-            qc.x(0)
-        noisy_message.append(qc)
-    return noisy_message
-
-def share_basis():
-    # TODO:Share the key between two users
-    return "the basis"
-
 def remove_garbage(a_basis: np.ndarray, b_basis: np.ndarray, bits: np.ndarray) -> list:
     """
     Remove bits that were measured in different bases.
@@ -73,16 +55,6 @@ def remove_garbage(a_basis: np.ndarray, b_basis: np.ndarray, bits: np.ndarray) -
     return [bits[q] for q in range(NUM_QUBITS) if a_basis[q] == b_basis[q]]  # Removes bits that do not match
 
 
-def send_check_keys(key1: list, key2: list) -> None:
-    #FIXME: Implement random bit verification 
-    print("\nAlice's key: ", key1)
-    print("Bob's key:   ", key2)
-    if key1 == key2:
-        print("Keys are the same and secure.")
-    else:
-        print("Error: keys are different.")
-
-
 
 class QLS_Client:
     #Default Line Ending
@@ -96,8 +68,77 @@ class QLS_Client:
         """Connects to a given socket port"""
         self._host = host
         self._port = port
-        self.socket.connect((host, port))
-    
+
+        for i in range(0,5):
+            self.socket.connect((host, port))
+            received_data = b""
+            while True:
+                str = self.recv()
+                if str[-4:] == b"done":
+                    if(len(str) > 4):
+                        received_data += str[:-4]
+                    break
+                received_data += str
+
+            received_list = pickle.loads(received_data)
+            bob_basis = generate_bits(NUM_QUBITS)
+            bob_results = measure_message(received_list, bob_basis)
+
+            ssm_dump = pickle.dumps(bob_basis)
+            bytes_sent = 0
+            while bytes_sent < len(ssm_dump):
+                chunk = ssm_dump[bytes_sent:bytes_sent+4096]
+                self.socket.sendall(chunk)
+                bytes_sent += len(chunk)
+            self.socket.send(b"done")
+
+            received_data = b""
+            while True:
+                str = self.recv()
+                if str[-4:] == b"done":
+                    if(len(str) > 4):
+                        received_data += str[:-4]
+                    break
+                received_data += str
+
+            alex_basis = pickle.loads(received_data)
+            bob_key = remove_garbage(alex_basis,bob_basis,bob_results);
+
+            bob_map_key = select_random_indices(bob_key)
+
+            ssm_dump = pickle.dumps(bob_map_key)
+            bytes_sent = 0
+            while bytes_sent < len(ssm_dump):
+                chunk = ssm_dump[bytes_sent:bytes_sent+4096]
+                self.socket.sendall(chunk)
+                bytes_sent += len(chunk)
+            self.socket.send(b"done")
+
+            received_data = b""
+            while True:
+                str = self.recv(1024)
+                if str[-4:] == b"done":
+                    if(len(str) > 4):
+                        received_data += str[:-4]
+                    break
+                received_data += str
+            
+            response = pickle.loads(received_data)
+
+
+            if response ==  "validdone":
+                self.secret_key = bob_key
+                break
+            else:
+                self.secret_key = False
+                self.socket.close()
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        
+
+        if not self.secret_key:
+            print("Connection failed")
+        else:
+            print("Connection succeeded")
 
     def send(self, message: str) -> None:
         """Send a string over the socket."""

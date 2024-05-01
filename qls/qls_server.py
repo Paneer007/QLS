@@ -58,34 +58,12 @@ def remove_garbage(a_basis: np.ndarray, b_basis: np.ndarray, bits: np.ndarray) -
     """
     return [bits[q] for q in range(NUM_QUBITS) if a_basis[q] == b_basis[q]]  # Removes bits that do not match
 
-
-def measure_message(message: list, basis: np.ndarray) -> list:
-    """
-    Measure a quantum message using a given basis.
-
-    Parameters:
-    message (list): The quantum message to be measured.
-    basis (np.ndarray): The basis to use for measurement.
-
-    Returns:
-    list: The measurements results.
-    """
-    backend = Aer.get_backend("qasm_simulator")
-    measurements = []
-    for q in range(NUM_QUBITS):
-        if basis[q] == 1:  # Measuring in X-basis
-            message[q].h(0)
-        message[q].measure(0, 0)
-        result = execute(message[q], backend, shots=1, memory=True).result()
-        measurements.append(int(result.get_memory()[0]))
-    return measurements
-
-def check_keys(map, key2: list) -> None:
+def check_keys(map, key2: list) -> bool:
     """
     Check if two keys are the same.
 
     Parameters:
-    key1 (list): The first key to be compared.
+    key1 (MAP): The first key to be compared.
     key2 (list): The second key to be compared.
 
     Returns:
@@ -102,6 +80,8 @@ def check_keys(map, key2: list) -> None:
         print("Keys are the same and secure.")
     else:
         print("Error: keys are different.")
+    
+    return flag
 
 
 class QLS_Server:
@@ -126,7 +106,7 @@ class QLS_Server:
             secret = generate_bits(NUM_QUBITS)
             secret_basis = generate_bits(NUM_QUBITS) #TODO: implement four tone key checking
             secret_message = encode_message(secret, secret_basis)
-            secret_sent_message = simulate_quantum_channel(secret_message,0.4)
+            secret_sent_message = simulate_quantum_channel(secret_message,0.01)
             with conn:
                 ssm_dump = pickle.dumps(secret_sent_message)
                 bytes_sent = 0
@@ -136,11 +116,7 @@ class QLS_Server:
                     bytes_sent += len(chunk)
                 conn.send(b"done")
                 print(f"Connected by {addr}")
-                # while True:
-                #     data = conn.recv(1024)
-                #     if not data:
-                #         break
-                #     conn.sendall(data)
+   
                 received_data = b""
                 while True:
                     str = conn.recv(1024)
@@ -160,7 +136,6 @@ class QLS_Server:
                 conn.send(b"done")
 
                 alex_key = remove_garbage(secret_basis,bob_basis,secret )
-                print(alex_key)
                 received_data = b""
                 while True:
                     str = conn.recv(1024)
@@ -171,8 +146,22 @@ class QLS_Server:
                     received_data += str
                 bob_map_key = pickle.loads(received_data)
                 
-                check_keys(bob_map_key,alex_key)
+                res = check_keys(bob_map_key,alex_key)
+                status = ""
+                if res:
+                    status = "validdone"
+                else:
+                    status = "repeatdone"
+                
 
+                ssm_dump = pickle.dumps(status)
+                bytes_sent = 0
+                while bytes_sent < len(ssm_dump):
+                    chunk = ssm_dump[bytes_sent:bytes_sent+4096]
+                    conn.send(chunk)
+                    bytes_sent += len(chunk)
+                conn.send(b"done")
+                
 
 
 
