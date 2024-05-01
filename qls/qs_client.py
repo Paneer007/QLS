@@ -5,7 +5,10 @@ import socket
 import pickle
 import random
 
-NUM_QUBITS = 128
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad,unpad
+
+NUM_QUBITS = 96
 
 
 def select_random_indices(arr):
@@ -52,7 +55,19 @@ def remove_garbage(a_basis: np.ndarray, b_basis: np.ndarray, bits: np.ndarray) -
     """
     return [bits[q] for q in range(NUM_QUBITS) if a_basis[q] == b_basis[q]]  # Removes bits that do not match
 
-
+def four_fold_key(key):
+    leng = len(key)
+    dist = leng//4
+    arr=[]
+    for i in range(0,dist):
+        val = 0
+        for j in range(i, leng,4):
+            val ^= key[j]
+        arr.append(val)
+        
+    lenmissin = 16 - len(arr)
+    arr += lenmissin*[0];
+    return arr
 
 class QLS_Client:
     #Default Line Ending
@@ -61,14 +76,72 @@ class QLS_Client:
     def __init__(self) -> None:
         """Create a socket connection to given host and port."""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        
+    def send_data(self,host, port):
+        self.socket.connect((host, port))
+        self.socket.send(b"senddata")
+        data = "potatoes"
+        ct_bytes = self.cipher1.encrypt(pad(data.encode('utf-8'), AES.block_size))
+        print("cipher text", ct_bytes)
+        ssm_dump = pickle.dumps(ct_bytes)
+        bytes_sent = 0
+        while bytes_sent < len(ssm_dump):
+            chunk = ssm_dump[bytes_sent:bytes_sent+4096]
+            self.socket.sendall(chunk)
+            bytes_sent += len(chunk)
+        self.socket.send(b"done")
 
-    def connect(self, host,port):
+        
+        received_data = b""
+        while True:
+            str = self.recv()
+            if str[-4:] == b"done":
+                if(len(str) > 4):
+                    received_data += str[:-4]
+                break
+            received_data += str
+
+        response = pickle.loads(received_data)
+        print(response)
+
+    
+    def aes_connect(self, host, port):
+        self.socket.connect((host, port))
+        self.socket.send(b"aesconnectdata")
+        self.cipher1 = AES.new(bytes(self.secret_key), AES.MODE_CBC)
+        
+        ssm_dump = pickle.dumps(self.cipher1.iv)
+        bytes_sent = 0
+        while bytes_sent < len(ssm_dump):
+            chunk = ssm_dump[bytes_sent:bytes_sent+4096]
+            self.socket.sendall(chunk)
+            bytes_sent += len(chunk)
+        self.socket.send(b"done")
+
+
+        received_data = b""
+        while True:
+            str = self.recv()
+            if str[-4:] == b"done":
+                if(len(str) > 4):
+                    received_data += str[:-4]
+                break
+            received_data += str
+
+        iv2 = pickle.loads(received_data)
+        self.cipher2 =  AES.new(bytes(self.secret_key), AES.MODE_CBC,iv2)
+        print("voila- ")
+        self.socket.close()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def qkd_connect(self, host,port):
         """Connects to a given socket port"""
         self._host = host
         self._port = port
 
         for i in range(0,5):
             self.socket.connect((host, port))
+            self.socket.send(b"connectdata")
             received_data = b""
             while True:
                 str = self.recv()
@@ -125,7 +198,10 @@ class QLS_Client:
 
 
             if response ==  "validdone":
+                bob_key = four_fold_key(bob_key)
                 self.secret_key = bob_key
+                self.socket.close()
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 break
             else:
                 self.secret_key = False
@@ -137,6 +213,7 @@ class QLS_Client:
             print("Connection failed")
         else:
             print("Connection succeeded")
+            
 
     def send(self, message: str) -> None:
         """Send a string over the socket."""
