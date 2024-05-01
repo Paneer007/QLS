@@ -14,8 +14,6 @@ def select_random_indices(arr):
     result = {index: arr[index] for index in random_indices}
     return result
 
-
-
 def generate_bits(n: int) -> np.ndarray:
     return randint(2, size=n)
 
